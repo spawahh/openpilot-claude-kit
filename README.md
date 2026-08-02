@@ -219,7 +219,13 @@ container with `CLAUDE_CODE_REMOTE=true`, which cannot be faked locally. Its gua
 conditions are tested; its provisioning body is not.
 
 Because openpilot moves fast, anything here can go stale. Issues and PRs welcome,
-especially "this no longer matches upstream" corrections.
+especially "this no longer matches upstream" corrections — see
+[CONTRIBUTING.md](CONTRIBUTING.md) for the checks to run and the rules that keep each
+plugin safe to install.
+
+Found a way to make `openpilot-device` write something, or to get GPS out of it by
+default? That is exactly the bug worth reporting — privately, via
+[SECURITY.md](SECURITY.md).
 
 ## License
 
