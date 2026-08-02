@@ -1,0 +1,14 @@
+{
+  "name": "openpilot-dev",
+  "description": "Knowledge for the commaai/openpilot codebase and contributing upstream — repo layout, code style, the tools, and what upstream will and won't merge.",
+  "version": "0.1.0",
+  "author": {
+    "name": "spawahh",
+    "url": "https://github.com/spawahh"
+  },
+  "homepage": "https://github.com/spawahh/openpilot-claude-kit",
+  "repository": "https://github.com/spawahh/openpilot-claude-kit",
+  "license": "MIT",
+  "keywords": ["openpilot", "comma", "opendbc", "panda", "cereal", "cabana", "contributing"],
+  "defaultEnabled": true
+}

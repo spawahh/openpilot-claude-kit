@@ -7,6 +7,20 @@
   },
   "plugins": [
     {
+      "name": "openpilot-dev",
+      "source": "./plugins/openpilot-dev",
+      "description": "Knowledge for the commaai/openpilot codebase and contributing upstream — repo layout, code style, the tools, and what upstream will and won't merge.",
+      "version": "0.1.0",
+      "author": {
+        "name": "spawahh",
+        "url": "https://github.com/spawahh"
+      },
+      "license": "MIT",
+      "category": "development",
+      "keywords": ["openpilot", "comma", "opendbc", "panda", "cereal", "cabana", "contributing"],
+      "tags": ["openpilot", "knowledge", "contributing"]
+    },
+    {
       "name": "openpilot-cloud-dev",
       "source": "./plugins/openpilot-cloud-dev",
       "description": "Provision and work in an openpilot checkout inside an ephemeral cloud container — no local Linux box required.",

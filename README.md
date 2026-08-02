@@ -1,21 +1,77 @@
 # openpilot claude-kit
 
-Claude Code plugins for working on [openpilot](https://github.com/commaai/openpilot) and
-its forks.
+Four Claude Code plugins for working on [openpilot](https://github.com/commaai/openpilot)
+and its forks: codebase knowledge, a cloud dev environment, read-only access to your comma
+device, and the SSH workflows for everything that needs a shell.
 
-The first plugin targets the case where you **don't have a local Linux dev environment**:
-provisioning an openpilot checkout inside an ephemeral cloud container, and knowing what
-that environment can and cannot actually verify.
+They are independent — install only what you need.
+
+## Which one do I want?
+
+| I want to… | Plugin | Needs |
+|---|---|---|
+| Understand the codebase, or know whether my PR will merge | [`openpilot-dev`](#openpilot-dev) | nothing |
+| Work on openpilot without a local Linux box | [`openpilot-cloud-dev`](#openpilot-cloud-dev) | a cloud session |
+| Look at my drives, logs, and live device state | [`openpilot-device`](#openpilot-device) | comma account, `uv` |
+| Deploy to a device, build on it, hunt CAN signals | [`openpilot-device-ssh`](#openpilot-device-ssh) | SSH key, physical device |
+
+**The two device plugins split by transport, and the split is real.** `openpilot-device`
+reads through comma's cloud API — no key, no local network, works from anywhere. But it
+cannot give you a shell. `openpilot-device-ssh` covers everything that needs one: builds,
+deploys, params, live CAN, and any device with no internet at all.
+
+## Prerequisites
+
+- **Claude Code** — all four plugins.
+- **[`uv`](https://docs.astral.sh/uv/) on PATH** — `openpilot-device` only. Its MCP server
+  declares dependencies inline, so `uv` installs them; there is nothing to `pip install`.
+- **A comma prime subscription** — only for the `ssh.comma.ai` proxy in
+  `openpilot-device-ssh`. Local-network SSH and the whole connect API work without it.
 
 ## Install
 
 ```
 /plugin marketplace add spawahh/openpilot-claude-kit
+```
+
+Then install whichever you want:
+
+```
+/plugin install openpilot-dev@openpilot-claude-kit
 /plugin install openpilot-cloud-dev@openpilot-claude-kit
+/plugin install openpilot-device-ssh@openpilot-claude-kit
+/plugin install openpilot-device@openpilot-claude-kit
 /reload-plugins
 ```
 
+`openpilot-device` ships **disabled** because it needs a credential. Turn it on
+deliberately, after setting your token (see [its section](#openpilot-device)):
+
+```
+/plugin enable openpilot-device@openpilot-claude-kit
+```
+
 ## Plugins
+
+### `openpilot-dev`
+
+Working knowledge of the openpilot codebase and what upstream actually merges. Pure
+knowledge — no hook, no server, no credential.
+
+| Component | What it does |
+|---|---|
+| `openpilot-dev` skill | The will-it-merge test, repo layout, code style hard rules, safety red lines |
+| `contributing` reference | Merge criteria with examples, fork rules, PR checklist |
+| `dev-setup` reference | Local setup (Ubuntu / macOS / WSL), build, tests, log format |
+| `repo-map` reference | Repo and submodule layout, what each `selfdrive` process does |
+| `tools` reference | replay, cabana, PlotJuggler, LogReader, MetaDrive sim, joystick, camerastream |
+
+The single most useful thing here is knowing that **car ports and CAN safety live in
+opendbc, not openpilot** — proposing them in the wrong repo is the most common wasted PR.
+
+The skill states the date its facts were verified against `master` and links the raw
+upstream files to re-check. openpilot moves fast; trust the live repo over the skill when
+they disagree.
 
 ### `openpilot-cloud-dev`
 
@@ -46,22 +102,38 @@ No SSH, no local network, no Prime proxy config — one token covers everything.
 | `openpilot-device` skill | When each transport works, how to find a drive, and what the API cannot do |
 | `api-surface` reference | Every endpoint, and the list of ones deliberately left unreachable |
 
-```
-/plugin install openpilot-device@openpilot-claude-kit
-export COMMA_JWT="..."   # from https://jwt.comma.ai/, valid 90 days
+Generate a token at <https://jwt.comma.ai/> (valid 90 days), then put it where **Claude
+Code itself** will inherit it:
+
+```powershell
+# Windows — then restart Claude Code
+setx COMMA_JWT "<token>"
 ```
 
-Then run `verify_connection` before anything else.
+```bash
+# macOS / Linux — add to your shell profile, then restart Claude Code
+export COMMA_JWT="<token>"
+```
+
+**Exporting it in an already-running terminal will not work.** The MCP server is launched
+by Claude Code and inherits the environment Claude Code started with, not whatever you type
+into a shell afterwards. If `verify_connection` reports the token missing, this is why —
+set it, then fully restart.
+
+Then:
+
+```
+/plugin enable openpilot-device@openpilot-claude-kit
+```
+
+Run `verify_connection` before anything else. It confirms the token works and lists your
+devices without echoing the token back.
 
 **Read-only by construction.** Every tool builds its own URL — there is no generic
 request tool — and a path guard refuses anything touching billing, pairing, user
 management, or navigation. `POST /v1/prime/cancel` and "push a destination to a moving
 car" are both real endpoints on this API; allowlisting is the entire safety model.
 Athena helps here too: it exposes no shell, no reboot, and no parameter writes.
-
-Requires [`uv`](https://docs.astral.sh/uv/) on PATH — the server declares its own
-dependencies inline, so there is nothing to install by hand. Ships disabled
-(`defaultEnabled: false`); it needs a credential, so opt in deliberately.
 
 Your `COMMA_JWT` is a bearer credential for the whole account, not just the device.
 Keep it in the environment. Never paste it into a chat.
@@ -83,16 +155,12 @@ on a car computer, and the guarantee would degrade to "safe by allowlist", which
 leaky for shell (`;`, `&&`, `$()`, quoting). The dangerous half of device work is exactly
 what SSH unlocks, so this plugin ships the knowledge and lets your existing shell run it.
 
-Which to use: if you need routes, logs, or a live snapshot, use `openpilot-device` — no
-key, no local network. If you need a build, a deploy, params, live CAN, or a device with
-no internet, you need SSH.
-
 ## What this is not
 
-A container has no CAN bus, no comma device, no display, and no camera. Plenty of
-openpilot work simply cannot be validated without hardware. The skill is deliberate
-about naming that boundary, because the expensive mistake is not a failed build — it's
-believing a change is verified when it isn't.
+A container has no CAN bus, no comma device, no display, and no camera. Plenty of openpilot
+work simply cannot be validated without hardware. The skills are deliberate about naming
+that boundary, because the expensive mistake is not a failed build — it's believing a
+change is verified when it isn't.
 
 ## Safety
 
@@ -133,7 +201,7 @@ One command runs everything that does not need a credential. This is also what C
 ./verify-kit.sh
 ```
 
-24 checks: manifest structure, `claude plugin validate --strict` on every plugin, Python
+25 checks: manifest structure, `claude plugin validate --strict` on every plugin, Python
 compilation, the read-only safety suite, MCP server startup, the cloud hook's guard
 conditions, and a scan for committed secrets.
 
