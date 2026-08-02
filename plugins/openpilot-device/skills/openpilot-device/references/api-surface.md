@@ -65,14 +65,33 @@ when the device is configured for it. Signed URLs point at
 
 | Tool | Method | Verified |
 |---|---|---|
-| `live_message` | `getMessage(service, timeout)` | offline path only |
-| `device_runtime_state` | `getVersion`, `getNetworkType`, `getNetworkMetered`, `getSimInfo`, `getNotCar` | offline path only |
-| `list_device_files` | `listDataDirectory(prefix)` | offline path only |
+| `live_message` | `getMessage(service, timeout)` | ✅ |
+| `device_runtime_state` | `getVersion`, `getNetworkType`, `getNetworkMetered`, `getSimInfo`, `getNotCar` | ✅ |
+| `list_device_files` | `listDataDirectory(prefix)` | ✅ |
 
-An offline device returns **HTTP 404 `{"error": "Device not registered"}`**. The server
-translates this into a plain "not currently connected" message rather than the generic
-404 advice, because it is the common case. **The success path is still unverified** — it
-needs a device that is awake and on network.
+The documented envelope works, and the server is stricter than it needs to be: a live
+device answered with `jsonrpc` omitted, with `params` omitted, and with an extra
+`expiry` key. The response `id` is a server-generated UUID, not the id you sent — do not
+match on it.
+
+Verified payload sizes: `deviceState` 34 fields, `carState` 50, `controlsState` 11.
+`listDataDirectory` returned 2266 entries on a device with a month of drives.
+
+### Athena failure modes
+
+| Status | Means |
+|---|---|
+| 404 `Device not registered` | Device known, no live connection right now |
+| 401 `Unauthorized` | Token cannot reach that dongle id |
+
+**A fresh `last_athena_ping` does not guarantee 404 will not happen.** The websocket is
+established shortly after the ping, so there is a window where the device looks online
+and athena still refuses. Observed: a device reporting `last_seen=70s` returned 404, then
+succeeded about a minute later. Retry rather than concluding the device is broken.
+
+Only `athena.comma.ai/:dongle_id` works. `athena.comma.ai/v1/:dongle_id`,
+`api/v1/devices/:id/athena`, `api/v1/athena/:id`, and `api/v1/devices/:id/rpc` all 404.
+`GET /v1/devices/:id/athena_offline_queue` works and returns `[]` on a live device.
 
 ## Privacy: fields stripped by default
 

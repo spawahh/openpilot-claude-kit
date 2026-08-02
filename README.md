@@ -113,9 +113,9 @@ upstream-openpilot path — **has not yet been run end to end against upstream
 The documented failure modes and fixes are each drawn from a real debugging session, not
 from reading source.
 
-`openpilot-device` **has been run against a live account.** Every REST tool returns real
-data; the athena tools are verified only on their offline path (the test device was
-asleep), so the live-message success path remains unproven.
+`openpilot-device` **has been fully verified against a live account and an awake
+device.** All 13 tools return real data, including the athena ones — `deviceState`
+(34 fields), `carState` (50), `controlsState` (11), and a 2266-entry device file listing.
 
 That run found four places where comma's published spec does not match the running API —
 `/devices/:id/segments` 404s, `routes_segments` takes `start`/`end` rather than
@@ -146,9 +146,9 @@ conditions, and a scan for committed secrets.
 `test_live.py` is deliberately excluded from CI — the token is a bearer credential for a
 personal comma account and does not belong in a secrets store for this.
 
-**Two things remain unverified**, and no amount of local testing fixes either: the athena
-live-message success path needs the device awake and on network, and the cloud
-provisioning hook needs an actual cloud container.
+**One thing remains unverified**: the cloud provisioning hook needs an actual cloud
+container with `CLAUDE_CODE_REMOTE=true`, which cannot be faked locally. Its guard
+conditions are tested; its provisioning body is not.
 
 Because openpilot moves fast, anything here can go stale. Issues and PRs welcome,
 especially "this no longer matches upstream" corrections.

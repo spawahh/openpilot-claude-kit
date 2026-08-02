@@ -157,14 +157,23 @@ def _athena(dongle_id: str, method: str, params: dict[str, Any] | None = None) -
             resp.raise_for_status()
             payload = resp.json()
     except httpx.HTTPStatusError as exc:
+        # Athena distinguishes the two failures by status, verified against a live
+        # account: 404 means the device is known but has no live connection right
+        # now; 401 means the token cannot reach that dongle id at all.
         if exc.response.status_code == 404:
-            # Athena returns 404 "Device not registered" when the device is simply
-            # not connected. That is the common case, not a bad dongle id.
             raise DeviceError(
-                f"Athena cannot reach device {dongle_id}: it is not currently connected "
-                "(the API returns 404 'Device not registered' for an offline device). "
-                "Run verify_connection to see last_seen_seconds_ago. REST tools still "
-                "work against already-uploaded data."
+                f"Athena has no live connection to device {dongle_id} "
+                "(404 'Device not registered'). The device must be awake with its "
+                "athena websocket established — a fresh last_athena_ping is necessary "
+                "but not sufficient, since the socket comes up shortly after the ping. "
+                "Wait a moment and retry. REST tools work regardless, against "
+                "already-uploaded data."
+            ) from exc
+        if exc.response.status_code == 401:
+            raise DeviceError(
+                f"Athena refused device {dongle_id} (401). The token is valid — "
+                "list_devices works — but it does not grant access to that dongle id. "
+                "Check the id against list_devices."
             ) from exc
         raise DeviceError(_explain_status(exc)) from exc
     except httpx.RequestError as exc:

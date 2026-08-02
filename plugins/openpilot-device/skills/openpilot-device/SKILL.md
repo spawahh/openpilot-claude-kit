@@ -37,11 +37,21 @@ This distinction causes most confusion. A parked device that has uploaded its dr
 answers every REST tool and fails every athena tool. That is normal, not a fault.
 
 **There is no `is_online` field on the API.** `verify_connection` derives `online` from
-how recently `last_athena_ping` was updated, and also reports
-`last_seen_seconds_ago` so you can judge for yourself. When a device is offline, athena
-calls return HTTP 404 `Device not registered` — that means *not connected*, not a wrong
-dongle id. The server translates it into a plain message; do not read it as a bad
-argument and retry with a different id.
+how recently `last_athena_ping` was updated, and reports `last_seen_seconds_ago` so you
+can judge for yourself.
+
+**`online: true` does not guarantee athena will answer.** A fresh ping is necessary but
+not sufficient — the websocket comes up shortly after the ping, so there is a window
+where the device looks online and athena still returns 404. Observed in practice: a
+device reporting `last_seen=70s` returned 404, then succeeded a minute later. If you get
+404 on a device that looks online, wait and retry rather than concluding it is broken.
+
+Athena's two failures are distinct and the server reports them differently:
+
+| Status | Means |
+|---|---|
+| 404 `Device not registered` | Device known, no live connection right now. Retry. |
+| 401 `Unauthorized` | The token cannot reach that dongle id. Check it against `list_devices`. |
 
 ## Finding a drive
 
