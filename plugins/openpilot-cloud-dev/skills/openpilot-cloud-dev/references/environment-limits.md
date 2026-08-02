@@ -50,6 +50,40 @@ If you genuinely are on a host where no managed build exists, force the system
 interpreter *and* install the matching `-dev` package. Note that openpilot's own
 `tools/setup_dependencies.sh` does **not** install it.
 
+### `No interpreter found for Python 3.12.x in managed installations`
+
+uv **embeds** its list of downloadable Python builds, so an older uv does not know newer
+patch releases exist. Claude Code cloud containers shipped uv 0.8.17 as of 2026.08, which
+tops out at `cpython-3.12.11` — while openpilot's `.python-version` pins `3.12.13`.
+
+This is nastier than it looks. Under `set -e` it aborts the whole provisioning step
+*before* submodules or scons, and if it happens inside `tools/setup_dependencies.sh` the
+cause is invisible from the outside — the session just comes up unprovisioned.
+
+`pyproject.toml` only requires `>= 3.12.3, < 3.13`; the exact patch comes solely from
+`.python-version`. A full fork suite has run green on 3.12.11, so relaxing to the minor
+series is safe:
+
+```bash
+uv python install "$(cat .python-version)"   || export UV_PYTHON=3.12          # UV_PYTHON overrides .python-version (verified)
+```
+
+Check what your uv can actually provide with
+`uv python list --all-versions | grep cpython-3.12`.
+
+### `ImportError: libGLESv2.so.2: cannot open shared object file`
+
+`RAYLIB_BACKEND=headless` is **not** sufficient — the headless backend still links GLES at
+import time. Without the runtime libraries, `import pyray` fails and a raylib-based fork
+cannot even *collect* its UI tests. openpilot's `tools/setup_dependencies.sh` does not
+install them; it has no gles/egl/mesa entry at all.
+
+```bash
+apt-get update && apt-get install -y libgles2 libegl1 libegl-mesa0
+```
+
+Run `apt-get update` first: installing straight from a stale index 404s on `libegl-mesa0`.
+
 ### `git submodule update` exits 0 having populated nothing
 
 Submodules must be initialized **before** `uv sync`, because `pyproject.toml` declares

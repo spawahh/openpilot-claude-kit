@@ -51,22 +51,55 @@ git submodule update --jobs 4 --init --recursive < /dev/null
 # UV_GITHUB_TOKEN authenticates GitHub fetches so they don't hit the anonymous rate
 # limit behind a container proxy.
 #
-# Deliberately NOT forcing a system interpreter. An earlier version of this hook set
-# UV_PYTHON_PREFERENCE=only-system with UV_PYTHON=/usr/bin/python3.12, on the belief
-# that the pinned 3.12.x had no python-build-standalone build. That belief was wrong —
-# cpython-3.12.13 is available as a managed build — and the override actively broke the
-# build: a distro python without its -dev package ships no Python.h, so every Cython
-# extension failed with
+# Deliberately NOT forcing a system interpreter. An earlier version set
+# UV_PYTHON_PREFERENCE=only-system with UV_PYTHON=/usr/bin/python3.12, which broke the
+# build outright: a distro python without its -dev package ships no Python.h, so every
+# Cython extension failed with
 #     msgq_repo/msgq/ipc_pyx.cpp:33:10: fatal error: Python.h: No such file or directory
-# uv's managed interpreters bundle their headers, so letting uv choose just works and
-# needs no root to install python3-dev.
+# uv's managed interpreters bundle their headers, so letting uv choose needs no root.
 #
-# Set OP_UV_SYSTEM_PYTHON=1 to restore the old behaviour on a host where a managed
-# download genuinely is not available; you then need the matching -dev package.
+# Set OP_UV_SYSTEM_PYTHON=1 to force the system interpreter anyway; you then need the
+# matching -dev package installed.
 export UV_GITHUB_TOKEN="${UV_GITHUB_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}"
 if [ "${OP_UV_SYSTEM_PYTHON:-0}" = "1" ]; then
   export UV_PYTHON_PREFERENCE="only-system"
   export UV_PYTHON="${UV_PYTHON:-/usr/bin/python3.12}"
+fi
+
+# Resolve the interpreter BEFORE anything runs uv, and never depend on a particular
+# uv version's download manifest.
+#
+# uv embeds its list of available Python builds, so an older uv simply does not know
+# newer patch releases exist. openpilot's .python-version pins an exact patch
+# (e.g. 3.12.13) that uv 0.8.17 — the version in Claude Code cloud containers as of
+# 2026.08 — cannot provide; it tops out at 3.12.11. uv then fails with
+#     error: No interpreter found for Python 3.12.13 in managed installations
+# and because this script runs under `set -e`, the whole hook aborts before submodules,
+# scons, or the env-file step. The session comes up completely unprovisioned, and the
+# real cause is buried inside tools/setup_dependencies.sh where it is invisible.
+#
+# pyproject.toml only requires >= 3.12.3, < 3.13 — the exact patch comes solely from
+# .python-version. A full fork test suite has been run green on 3.12.11, so relaxing to
+# the minor series is safe rather than merely expedient. UV_PYTHON overrides
+# .python-version (verified), and it must be exported here so it also reaches the
+# uv sync inside tools/setup_dependencies.sh below.
+if [ "${OP_UV_SYSTEM_PYTHON:-0}" != "1" ] && [ -f .python-version ] && command -v uv >/dev/null 2>&1; then
+  op_pin="$(tr -d '[:space:]' < .python-version)"
+  if [ -n "$op_pin" ] && ! uv python find "$op_pin" >/dev/null 2>&1; then
+    if uv python install "$op_pin" </dev/null >/dev/null 2>&1; then
+      echo "openpilot-cloud-dev: installed pinned Python $op_pin"
+    else
+      export UV_PYTHON="${UV_PYTHON:-${op_pin%.*}}"
+      echo "openpilot-cloud-dev: this uv ($(uv --version 2>/dev/null)) cannot provide the" \
+           "pinned Python $op_pin; falling back to $UV_PYTHON (pyproject allows it)"
+      if ! uv python find "$UV_PYTHON" >/dev/null 2>&1 \
+         && ! uv python install "$UV_PYTHON" </dev/null >/dev/null 2>&1; then
+        echo "FATAL: no interpreter available for $UV_PYTHON. Upgrade uv, or install a" \
+             "matching Python, or set UV_PYTHON to one that exists." >&2
+        exit 1
+      fi
+    fi
+  fi
 fi
 
 # tools/setup_dependencies.sh (upstream openpilot and most forks ship it) installs
@@ -95,6 +128,28 @@ else
   # capnproto, ...) are missing and scons dies at "ModuleNotFoundError: No module
   # named 'bzip2'" — a confusing failure that looks like a broken checkout.
   uv sync --frozen --all-extras < /dev/null
+fi
+
+# 4b. GLES/EGL runtime libraries for raylib.
+#
+# RAYLIB_BACKEND=headless is NOT sufficient: the headless backend still links GLES at
+# import time, so without these `import pyray` dies with
+#     ImportError: libGLESv2.so.2: cannot open shared object file
+# and a raylib-based fork cannot even *collect* its UI tests. openpilot's own
+# tools/setup_dependencies.sh does not install them (no gles/egl/mesa entry at all).
+#
+# Best effort only — a missing UI toolchain must never fail the session, and plenty of
+# work needs no raylib. `apt-get update` first: installing straight from a stale index
+# 404s on libegl-mesa0.
+if command -v apt-get >/dev/null 2>&1 \
+   && { [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; }; then
+  op_sudo=""; [ "$(id -u)" -eq 0 ] || op_sudo="sudo -n"
+  if ! ldconfig -p 2>/dev/null | grep -q "libGLESv2\.so\.2"; then
+    echo "openpilot-cloud-dev: installing GLES/EGL runtime for raylib"
+    $op_sudo apt-get update -qq </dev/null >/dev/null 2>&1 || true
+    $op_sudo apt-get install -y -qq libgles2 libegl1 libegl-mesa0 </dev/null >/dev/null 2>&1 \
+      || echo "openpilot-cloud-dev: GLES/EGL install failed; raylib UI tests will not import"
+  fi
 fi
 
 # 5. Git LFS assets. A missing or rate-limited LFS mirror must not fail the session;
