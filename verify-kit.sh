@@ -23,10 +23,10 @@ pass=0; fail=0; skip=0
 ok()   { echo "  PASS  $1"; pass=$((pass + 1)); }
 bad()  { echo "  FAIL  $1"; fail=$((fail + 1)); }
 note() { echo "  SKIP  $1"; skip=$((skip + 1)); }
-head() { echo; echo "== $1"; }
+section() { echo; echo "== $1"; }   # not `head` — that shadows the coreutil
 
 # ---------------------------------------------------------------- manifests
-head "Manifest structure"
+section "Manifest structure"
 "$PY" - <<'EOF' && ok "marketplace.json and every plugin.json are structurally valid" || bad "manifest structure"
 import json, sys
 from pathlib import Path
@@ -93,7 +93,7 @@ else
 fi
 
 # ---------------------------------------------------------------- python
-head "Python"
+section "Python"
 while IFS= read -r f; do
   if "$PY" -m py_compile "$f" 2>/dev/null; then ok "compiles: $f"; else bad "compiles: $f"; fi
 done < <(find plugins -name '*.py' | sort)
@@ -108,7 +108,7 @@ rm -f /tmp/kit_safety.$$
 
 # The MCP server actually starting is a separate question from the code being
 # correct: it also exercises uv, the PEP 723 dependency block, and tool registration.
-head "MCP server startup"
+section "MCP server startup"
 if command -v uv >/dev/null 2>&1; then
   if "$PY" plugins/openpilot-device/mcp/test_startup.py >/tmp/kit_startup.$$ 2>&1; then
     grep '^PASS' /tmp/kit_startup.$$ | sed 's/^PASS  /  PASS  /'
@@ -122,7 +122,7 @@ else
 fi
 
 # ---------------------------------------------------------------- shell
-head "Shell"
+section "Shell"
 while IFS= read -r f; do
   if bash -n "$f" 2>/dev/null; then ok "syntax: $f"; else bad "syntax: $f"; fi
 done < <(find plugins -name '*.sh' | sort)
@@ -130,7 +130,7 @@ done < <(find plugins -name '*.sh' | sort)
 # The provisioning hook must stay inert unless it is genuinely in a cloud container
 # sitting on an openpilot checkout. A false positive would start a 10-minute build
 # in someone's unrelated repo.
-head "Cloud hook guards"
+section "Cloud hook guards"
 HOOK="$PWD/plugins/openpilot-cloud-dev/scripts/session-start.sh"
 if [ -f "$HOOK" ]; then
   D=$(mktemp -d)
@@ -158,11 +158,39 @@ else
 fi
 
 # ---------------------------------------------------------------- hygiene
-head "Hygiene"
+section "Hygiene"
 if grep -rIn -E 'eyJ[A-Za-z0-9_-]{20,}\.' --include='*.py' --include='*.md' --include='*.json' --include='*.sh' . 2>/dev/null | grep -v '^\./\.git/'; then
   bad "a JWT-shaped string is committed"
 else
   ok "no JWT-shaped strings committed"
+fi
+
+# Anything with a shebang is meant to be run directly. git on Windows does not track
+# the executable bit by default, so a script can be committed 100644 and then fail with
+# "Permission denied" on Linux — which is how the SessionStart hook would break in a
+# real container. Check the mode recorded in git, not the working copy.
+if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+  notexec=""
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    # `head` here must be the coreutil. An earlier version of this script defined a
+    # shell function named `head` for section titles, which shadowed it and made this
+    # check silently unable to fail.
+    case "$(head -1 "$f" 2>/dev/null)" in
+      '#!'*) ;;
+      *) continue ;;
+    esac
+    mode=$(git ls-files -s -- "$f" | awk '{print $1}')
+    [ "$mode" = "100755" ] || notexec="$notexec $f"
+  done < <(git ls-files)
+  if [ -n "$notexec" ]; then
+    bad "shebang files not executable in git:$notexec"
+    echo "        fix: git update-index --chmod=+x <file>"
+  else
+    ok "every shebang file is executable in git"
+  fi
+else
+  note "not a git checkout — cannot check executable bits"
 fi
 
 # ---------------------------------------------------------------- summary
