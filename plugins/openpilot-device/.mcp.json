@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "openpilot-device": {
+      "command": "uv",
+      "args": ["run", "--quiet", "${CLAUDE_PLUGIN_ROOT}/mcp/server.py"],
+      "env": {
+        "COMMA_JWT": "${COMMA_JWT}"
+      }
+    }
+  }
+}

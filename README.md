@@ -35,6 +35,37 @@ Set `OP_CLOUD_DEV_AUTOSETUP=0` to disable it and follow the skill's manual steps
 
 Tunables: `OP_SCONS_ARGS` (default `--minimal`), `UV_PYTHON`, `RAYLIB_BACKEND`.
 
+### `openpilot-device`
+
+Read-only access to a comma device through the [comma connect API](https://api.comma.ai/).
+No SSH, no local network, no Prime proxy config — one token covers everything.
+
+| Component | What it does |
+|---|---|
+| MCP server | 13 read-only tools: routes, signed rlog URLs, device stats, boot/crash logs, live cereal messages |
+| `openpilot-device` skill | When each transport works, how to find a drive, and what the API cannot do |
+| `api-surface` reference | Every endpoint, and the list of ones deliberately left unreachable |
+
+```
+/plugin install openpilot-device@openpilot-claude-kit
+export COMMA_JWT="..."   # from https://jwt.comma.ai/, valid 90 days
+```
+
+Then run `verify_connection` before anything else.
+
+**Read-only by construction.** Every tool builds its own URL — there is no generic
+request tool — and a path guard refuses anything touching billing, pairing, user
+management, or navigation. `POST /v1/prime/cancel` and "push a destination to a moving
+car" are both real endpoints on this API; allowlisting is the entire safety model.
+Athena helps here too: it exposes no shell, no reboot, and no parameter writes.
+
+Requires [`uv`](https://docs.astral.sh/uv/) on PATH — the server declares its own
+dependencies inline, so there is nothing to install by hand. Ships disabled
+(`defaultEnabled: false`); it needs a credential, so opt in deliberately.
+
+Your `COMMA_JWT` is a bearer credential for the whole account, not just the device.
+Keep it in the environment. Never paste it into a chat.
+
 ## What this is not
 
 A container has no CAN bus, no comma device, no display, and no camera. Plenty of
@@ -60,6 +91,22 @@ upstream-openpilot path — **has not yet been run end to end against upstream
 
 The documented failure modes and fixes are each drawn from a real debugging session, not
 from reading source.
+
+`openpilot-device` is transcribed from [comma's published API spec](https://api.comma.ai/)
+and openpilot's own client code (`tools/lib/api.py`, `system/athena/athenad.py`). **No
+endpoint has been called against a live account** — that needs a token. Expect
+response-shape surprises on first real use, especially in `verify_connection`. Run it
+before trusting anything else.
+
+The read-only guarantee *is* tested and does not depend on a token:
+
+```
+python plugins/openpilot-device/mcp/test_safety.py
+```
+
+It asserts that every billing, pairing, user-management, and navigation endpoint is
+refused, that the rate limiter trips, and that no registered tool name implies a
+mutation. No network, no dependencies.
 
 Because openpilot moves fast, anything here can go stale. Issues and PRs welcome,
 especially "this no longer matches upstream" corrections.

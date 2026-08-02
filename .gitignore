@@ -1,0 +1,7 @@
+# Claude Code worktrees used while developing this kit
+.claude/worktrees/
+
+# Python
+__pycache__/
+*.pyc
+.venv/

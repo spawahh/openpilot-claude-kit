@@ -19,6 +19,21 @@
       "category": "development",
       "keywords": ["openpilot", "comma", "sunnypilot", "opendbc", "panda", "cloud", "devcontainer"],
       "tags": ["openpilot", "cloud-dev", "scons", "uv"]
+    },
+    {
+      "name": "openpilot-device",
+      "source": "./plugins/openpilot-device",
+      "description": "Read-only access to a comma device through the comma connect API — routes, logs, signed rlog URLs, and live cereal messages. No SSH required.",
+      "version": "0.1.0",
+      "author": {
+        "name": "spawahh",
+        "url": "https://github.com/spawahh"
+      },
+      "license": "MIT",
+      "category": "development",
+      "keywords": ["openpilot", "comma", "connect", "athena", "rlog", "mcp", "telemetry"],
+      "tags": ["openpilot", "comma-connect", "mcp", "read-only"],
+      "defaultEnabled": false
     }
   ]
 }

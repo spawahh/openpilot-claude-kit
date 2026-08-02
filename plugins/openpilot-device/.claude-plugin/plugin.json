@@ -1,0 +1,14 @@
+{
+  "name": "openpilot-device",
+  "description": "Read-only access to a comma device through the comma connect API — routes, logs, signed rlog URLs, and live cereal messages. No SSH required.",
+  "version": "0.1.0",
+  "author": {
+    "name": "spawahh",
+    "url": "https://github.com/spawahh"
+  },
+  "homepage": "https://github.com/spawahh/openpilot-claude-kit",
+  "repository": "https://github.com/spawahh/openpilot-claude-kit",
+  "license": "MIT",
+  "keywords": ["openpilot", "comma", "connect", "athena", "rlog", "mcp", "telemetry"],
+  "defaultEnabled": false
+}
