@@ -1,0 +1,14 @@
+{
+  "name": "openpilot-device-ssh",
+  "description": "SSH workflows for a comma device — deploy a fork branch, build on-device, verify headlessly, and hunt CAN signals. Knowledge and scripts only; no server, no shell tool.",
+  "version": "0.1.0",
+  "author": {
+    "name": "spawahh",
+    "url": "https://github.com/spawahh"
+  },
+  "homepage": "https://github.com/spawahh/openpilot-claude-kit",
+  "repository": "https://github.com/spawahh/openpilot-claude-kit",
+  "license": "MIT",
+  "keywords": ["openpilot", "comma", "ssh", "deploy", "can", "dbc", "scons", "agnos"],
+  "defaultEnabled": true
+}

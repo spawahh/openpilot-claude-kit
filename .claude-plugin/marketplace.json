@@ -34,6 +34,20 @@
       "keywords": ["openpilot", "comma", "connect", "athena", "rlog", "mcp", "telemetry"],
       "tags": ["openpilot", "comma-connect", "mcp", "read-only"],
       "defaultEnabled": false
+    },
+    {
+      "name": "openpilot-device-ssh",
+      "source": "./plugins/openpilot-device-ssh",
+      "description": "SSH workflows for a comma device — deploy a fork branch, build on-device, verify headlessly, and hunt CAN signals. Knowledge and scripts only; no server, no shell tool.",
+      "version": "0.1.0",
+      "author": {
+        "name": "spawahh",
+        "url": "https://github.com/spawahh"
+      },
+      "license": "MIT",
+      "category": "development",
+      "keywords": ["openpilot", "comma", "ssh", "deploy", "can", "dbc", "scons", "agnos"],
+      "tags": ["openpilot", "comma-device", "ssh", "can"]
     }
   ]
 }

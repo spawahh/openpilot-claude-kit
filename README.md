@@ -66,6 +66,27 @@ dependencies inline, so there is nothing to install by hand. Ships disabled
 Your `COMMA_JWT` is a bearer credential for the whole account, not just the device.
 Keep it in the environment. Never paste it into a chat.
 
+### `openpilot-device-ssh`
+
+The other half of device work: everything needing a shell. **Knowledge and scripts only
+— no MCP server and no command tool.**
+
+| Component | What it does |
+|---|---|
+| `comma-device-ssh` skill | Connecting (local and Prime proxy), deploying a fork branch to a second checkout, on-device builds, the headless verification ladder |
+| `can-signal-hunt` skill | Finding the CAN message behind a physical car action, and the false positives that produce confident wrong answers |
+| 4 scripts | `can_probe`, `bit_watch`, `event_watch`, `rlog_analyze` — read-only; nothing transmits to the car |
+
+**Why no server here.** `openpilot-device` is read-only *by construction* — athena has
+no dangerous methods, so there is nothing to allowlist. An SSH server would have a shell
+on a car computer, and the guarantee would degrade to "safe by allowlist", which is
+leaky for shell (`;`, `&&`, `$()`, quoting). The dangerous half of device work is exactly
+what SSH unlocks, so this plugin ships the knowledge and lets your existing shell run it.
+
+Which to use: if you need routes, logs, or a live snapshot, use `openpilot-device` — no
+key, no local network. If you need a build, a deploy, params, live CAN, or a device with
+no internet, you need SSH.
+
 ## What this is not
 
 A container has no CAN bus, no comma device, no display, and no camera. Plenty of
