@@ -1,0 +1,14 @@
+{
+  "name": "openpilot-cloud-dev",
+  "description": "Provision and work in an openpilot checkout inside an ephemeral cloud container — no local Linux box required.",
+  "version": "0.1.0",
+  "author": {
+    "name": "spawahh",
+    "url": "https://github.com/spawahh"
+  },
+  "homepage": "https://github.com/spawahh/openpilot-claude-kit",
+  "repository": "https://github.com/spawahh/openpilot-claude-kit",
+  "license": "MIT",
+  "keywords": ["openpilot", "comma", "sunnypilot", "opendbc", "panda", "cloud"],
+  "defaultEnabled": true
+}

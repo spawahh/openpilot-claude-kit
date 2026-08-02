@@ -1,0 +1,24 @@
+{
+  "name": "openpilot-claude-kit",
+  "description": "Claude Code plugins for openpilot and its forks — cloud dev environments, device workflows, and codebase knowledge.",
+  "owner": {
+    "name": "spawahh",
+    "url": "https://github.com/spawahh"
+  },
+  "plugins": [
+    {
+      "name": "openpilot-cloud-dev",
+      "source": "./plugins/openpilot-cloud-dev",
+      "description": "Provision and work in an openpilot checkout inside an ephemeral cloud container — no local Linux box required.",
+      "version": "0.1.0",
+      "author": {
+        "name": "spawahh",
+        "url": "https://github.com/spawahh"
+      },
+      "license": "MIT",
+      "category": "development",
+      "keywords": ["openpilot", "comma", "sunnypilot", "opendbc", "panda", "cloud", "devcontainer"],
+      "tags": ["openpilot", "cloud-dev", "scons", "uv"]
+    }
+  ]
+}

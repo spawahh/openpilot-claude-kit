@@ -1,0 +1,5 @@
+# Shell scripts must keep LF endings — CRLF breaks the shebang in a Linux container
+# ("bad interpreter: /bin/bash^M"). This repo is authored on Windows.
+*.sh text eol=lf
+*.json text eol=lf
+*.md text eol=lf
