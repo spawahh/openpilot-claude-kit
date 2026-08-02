@@ -36,30 +36,65 @@ fi
 
 echo "openpilot-cloud-dev: provisioning toolchain (set OP_CLOUD_DEV_AUTOSETUP=0 to skip)"
 
+# Nothing in a SessionStart hook may ever wait on a human. A prompt here does not fail,
+# it hangs the session silently and forever. Refuse git's credential and host-key
+# prompts up front; each sub-step below also gets </dev/null.
+export GIT_TERMINAL_PROMPT=0
+export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new}"
+
 # 3. Submodules. pyproject path-sources (opendbc, msgq, panda, ...) live inside these
 #    checkouts, so they must exist before uv resolves the lockfile.
-git submodule update --jobs 4 --init --recursive
+git submodule update --jobs 4 --init --recursive < /dev/null
 
 # 4. System build deps + Python env.
-#    uv overrides needed in a managed container:
-#    - UV_GITHUB_TOKEN: authenticate GitHub fetches so they don't hit the anonymous
-#      rate limit behind the container's proxy.
-#    - UV_PYTHON / UV_PYTHON_PREFERENCE: the lockfile pins an exact 3.12.x that often
-#      has no python-build-standalone managed build. Use the in-range system CPython
-#      instead of trying to download one that does not exist.
+#
+# UV_GITHUB_TOKEN authenticates GitHub fetches so they don't hit the anonymous rate
+# limit behind a container proxy.
+#
+# Deliberately NOT forcing a system interpreter. An earlier version of this hook set
+# UV_PYTHON_PREFERENCE=only-system with UV_PYTHON=/usr/bin/python3.12, on the belief
+# that the pinned 3.12.x had no python-build-standalone build. That belief was wrong —
+# cpython-3.12.13 is available as a managed build — and the override actively broke the
+# build: a distro python without its -dev package ships no Python.h, so every Cython
+# extension failed with
+#     msgq_repo/msgq/ipc_pyx.cpp:33:10: fatal error: Python.h: No such file or directory
+# uv's managed interpreters bundle their headers, so letting uv choose just works and
+# needs no root to install python3-dev.
+#
+# Set OP_UV_SYSTEM_PYTHON=1 to restore the old behaviour on a host where a managed
+# download genuinely is not available; you then need the matching -dev package.
 export UV_GITHUB_TOKEN="${UV_GITHUB_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}"
-export UV_PYTHON_PREFERENCE="only-system"
-export UV_PYTHON="${UV_PYTHON:-/usr/bin/python3.12}"
+if [ "${OP_UV_SYSTEM_PYTHON:-0}" = "1" ]; then
+  export UV_PYTHON_PREFERENCE="only-system"
+  export UV_PYTHON="${UV_PYTHON:-/usr/bin/python3.12}"
+fi
 
-if [ -x ./tools/setup_dependencies.sh ]; then
-  # Forks that ship a one-shot setup script (installs cross-distro build deps, then
-  # runs uv sync itself). A no-op once satisfied.
-  ./tools/setup_dependencies.sh
+# tools/setup_dependencies.sh (upstream openpilot and most forks ship it) installs
+# system build deps AND writes udev rules. The udev block runs unconditionally — even
+# when the build deps are already present — and it uses sudo.
+#
+# Without a usable sudo that hangs FOREVER on the password prompt, with no output:
+# observed blocking for 60 minutes on `sudo tee /etc/udev/rules.d/11-openpilot.rules`,
+# no error, no timeout, the session simply never becomes usable. That is the worst
+# failure shape a SessionStart hook can have, so only take this path when we can
+# actually run it unattended.
+#
+# uv sync alone needs no privileges, and udev rules only matter for plugging in a
+# panda over USB — irrelevant in a container.
+if [ -x ./tools/setup_dependencies.sh ] && { [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; }; then
+  echo "openpilot-cloud-dev: running tools/setup_dependencies.sh"
+  # </dev/null so nothing downstream can block on stdin; timeout as a hard backstop
+  # so an unexpected prompt becomes a failure we can see rather than a hang.
+  timeout "${OP_SETUP_TIMEOUT:-900}" ./tools/setup_dependencies.sh < /dev/null
 else
+  if [ -x ./tools/setup_dependencies.sh ]; then
+    echo "openpilot-cloud-dev: skipping tools/setup_dependencies.sh (needs root or" \
+         "passwordless sudo for its udev step); using uv directly instead"
+  fi
   # --all-extras is REQUIRED. Without it the comma-deps build packages (bzip2, acados,
   # capnproto, ...) are missing and scons dies at "ModuleNotFoundError: No module
   # named 'bzip2'" — a confusing failure that looks like a broken checkout.
-  uv sync --frozen --all-extras
+  uv sync --frozen --all-extras < /dev/null
 fi
 
 # 5. Git LFS assets. A missing or rate-limited LFS mirror must not fail the session;
@@ -75,10 +110,19 @@ export RAYLIB_BACKEND="${RAYLIB_BACKEND:-headless}"
 scons -j"$(nproc)" ${OP_SCONS_ARGS-"--minimal"} -k \
   || echo "scons: some non-critical (UI-asset) targets failed; continuing"
 
-# Trust an assertion, not the exit code above: confirm the import-critical extension
-# actually built, so a real breakage still fails loudly.
-if [ ! -f common/params_pyx.so ] && [ ! -f openpilot/common/params_pyx.so ]; then
-  echo "FATAL: params_pyx.so did not build — the Python environment is not usable" >&2
+# Trust an assertion, not the exit code above: -k means scons reports success while
+# leaving real targets unbuilt.
+#
+# Assert on BEHAVIOUR, not a filename. An earlier version checked for params_pyx.so,
+# which does not exist in current upstream openpilot at all — params.py is pure Python
+# there and the SConscript builds libparams_c.so instead. That check turned every
+# successful upstream build into "FATAL: params_pyx.so did not build". Artifact names
+# vary by fork and by version; instantiating Params does not, and it genuinely requires
+# the compiled library to be present and loadable.
+if ! PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" python -c \
+     "from openpilot.common.params import Params; Params()" >/dev/null 2>&1; then
+  echo "FATAL: openpilot.common.params is not usable — the build did not produce a" \
+       "working compiled extension. Re-run scons without -k to see the real error." >&2
   exit 1
 fi
 

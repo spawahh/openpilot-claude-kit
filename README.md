@@ -89,7 +89,7 @@ they disagree.
 
 Set `OP_CLOUD_DEV_AUTOSETUP=0` to disable it and follow the skill's manual steps instead.
 
-Tunables: `OP_SCONS_ARGS` (default `--minimal`), `UV_PYTHON`, `RAYLIB_BACKEND`.
+Tunables: `OP_SCONS_ARGS` (default `--minimal`), `OP_SETUP_TIMEOUT`, `OP_UV_SYSTEM_PYTHON`, `RAYLIB_BACKEND`.
 
 ### `openpilot-device`
 

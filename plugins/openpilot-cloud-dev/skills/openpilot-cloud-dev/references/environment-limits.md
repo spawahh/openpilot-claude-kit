@@ -27,17 +27,28 @@ capnproto, ...) live in extras. Re-run:
 uv sync --frozen --all-extras
 ```
 
-### uv tries to download a Python that does not exist
+### `fatal error: Python.h: No such file or directory`
 
-The lockfile pins an exact patch version (for example 3.12.13) that often has no
-python-build-standalone managed build. Use the in-range system interpreter:
+Cython extensions (`ipc_pyx`, `visionipc_pyx`, …) need Python development headers. A
+distro interpreter does not ship them without its `-dev` package, and installing that
+needs root.
+
+**Do not force a system interpreter to avoid a managed download.** uv's managed
+interpreters bundle their headers, so letting uv choose is both correct and rootless:
 
 ```bash
-export UV_PYTHON_PREFERENCE=only-system
-export UV_PYTHON=/usr/bin/python3.12
+uv sync --frozen --all-extras        # no UV_PYTHON_PREFERENCE override
 ```
 
-Any 3.12.x satisfying `requires-python` works — it does not have to match the pin.
+This was a real, verified failure: forcing `UV_PYTHON_PREFERENCE=only-system` with
+`UV_PYTHON=/usr/bin/python3.12` on Ubuntu 24.04 without `python3.12-dev` broke every
+Cython target. The justification for that override — "the pinned 3.12.x has no
+python-build-standalone build" — turned out to be false; `cpython-3.12.13` is available
+as a managed build.
+
+If you genuinely are on a host where no managed build exists, force the system
+interpreter *and* install the matching `-dev` package. Note that openpilot's own
+`tools/setup_dependencies.sh` does **not** install it.
 
 ### `git submodule update` exits 0 having populated nothing
 
@@ -63,14 +74,21 @@ scons -j"$(nproc)" --minimal -k
 
 ### scons exits 0 but imports still fail
 
-`-k` continues past failures and can mask a real one. Assert the artifact instead of
-trusting the exit code:
+`-k` continues past failures and can mask a real one. Assert instead of trusting the
+exit code — but **assert on behaviour, not on a filename**:
 
 ```bash
-ls common/params_pyx.so openpilot/common/params_pyx.so 2>/dev/null
+PYTHONPATH="$PWD" python -c "from openpilot.common.params import Params; Params()"
 ```
 
-The path differs by fork layout — some forks nest the package under `openpilot/`.
+Instantiating `Params` requires the compiled library to exist and load, so this catches
+a masked failure. Do not check for `params_pyx.so`: it does not exist in current
+upstream openpilot, where `params.py` is pure Python and the SConscript builds
+`libparams_c.so`. Artifact names vary by fork and by version; a filename check silently
+inverts into a false FATAL on a perfectly good build.
+
+For a deeper check once the whole build is done, `from openpilot.cereal import
+messaging` additionally requires the compiled `msgq` extensions.
 
 ### GitHub fetches rate-limited
 

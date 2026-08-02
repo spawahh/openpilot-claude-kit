@@ -6,7 +6,7 @@ description: >-
   the environment needs provisioning (submodules, uv, scons), when a build or import
   fails in a container, when running car/safety tests headlessly, or when deciding
   whether a task is even possible without hardware. Trigger on "openpilot", "opendbc",
-  "panda", "sunnypilot", "scons", "uv sync", "params_pyx", "raylib", "test_models",
+  "panda", "sunnypilot", "scons", "uv sync", "Python.h", "raylib", "test_models",
   or setup failures in a cloud/codespace/devcontainer session.
 ---
 
@@ -33,11 +33,10 @@ Run from the checkout root.
 # resolve the lockfile until they exist.
 git submodule update --jobs 4 --init --recursive
 
-# Python env. Point uv at the system interpreter: the lockfile usually pins an
-# exact 3.12.x with no python-build-standalone build available.
-# --all-extras is REQUIRED (see environment-limits.md).
-export UV_PYTHON_PREFERENCE=only-system
-uv sync --frozen --python /usr/bin/python3.12 --all-extras
+# Python env. Let uv pick the interpreter — its managed builds bundle the headers
+# Cython needs. Forcing a distro python breaks the build unless python3-dev is
+# installed, which needs root. --all-extras is REQUIRED (see environment-limits.md).
+uv sync --frozen --all-extras
 source .venv/bin/activate
 
 # Build. Headless backend so the font-atlas step can run without a display.
@@ -46,8 +45,12 @@ export RAYLIB_BACKEND=headless
 scons -j"$(nproc)" --minimal -k
 ```
 
-Some forks ship `tools/setup_dependencies.sh`, which installs cross-distro build deps
-and runs `uv sync` itself. Prefer it when present.
+Upstream openpilot and most forks ship `tools/setup_dependencies.sh`, which installs
+cross-distro build deps and runs `uv sync` itself. **It needs root**: it writes udev
+rules with `sudo` unconditionally, even when the build deps are already present. Without
+a usable sudo it hangs forever on the password prompt with no output. Run it only as
+root or with passwordless sudo; otherwise use `uv sync` directly, since udev rules only
+matter for plugging in a panda over USB.
 
 Drop `--minimal` only if you need the full UI or test binaries; it roughly doubles
 build time and adds targets that fail without a display.
@@ -57,8 +60,9 @@ build time and adds targets that fail without a display.
 Never trust the scons exit code — `-k` masks real failures. Assert the artifacts:
 
 ```bash
-# The import-critical extension must exist (path differs by fork layout).
-ls common/params_pyx.so openpilot/common/params_pyx.so 2>/dev/null
+# Assert on behaviour, not a filename: instantiating Params requires the compiled
+# library. (params_pyx.so does not exist in current upstream — see environment-limits.md.)
+PYTHONPATH="$PWD" python -c "from openpilot.common.params import Params; Params()"
 
 # The two imports car and safety tests need.
 python -c "from openpilot.selfdrive.pandad import can_capnp_to_list; \
