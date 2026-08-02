@@ -125,16 +125,30 @@ All four are fixed and documented in
 It also found that the `mcp` SDK renamed `FastMCP` to `MCPServer` in 2.0; the server
 imports whichever is present.
 
-The read-only guarantee *is* tested and does not depend on a token:
+## Verifying
+
+One command runs everything that does not need a credential. This is also what CI runs.
 
 ```
-python plugins/openpilot-device/mcp/test_safety.py
+./verify-kit.sh
 ```
 
-It asserts that every billing, pairing, user-management, and navigation endpoint is
-refused, that the rate limiter trips, that no registered tool name implies a mutation,
-and that GPS coordinates and VIN are stripped from records by default. No network, no
-dependencies.
+24 checks: manifest structure, `claude plugin validate --strict` on every plugin, Python
+compilation, the read-only safety suite, MCP server startup, the cloud hook's guard
+conditions, and a scan for committed secrets.
+
+| Suite | Needs | Covers |
+|---|---|---|
+| `test_safety.py` | nothing | Billing/pairing/navigation endpoints unreachable, rate limiter trips, no mutating tool names, GPS and VIN stripped by default |
+| `test_startup.py` | `uv` | The server actually launches, resolves its own dependencies, and registers 13 described tools |
+| `test_live.py` | `COMMA_JWT` | Every tool against a real account |
+
+`test_live.py` is deliberately excluded from CI — the token is a bearer credential for a
+personal comma account and does not belong in a secrets store for this.
+
+**Two things remain unverified**, and no amount of local testing fixes either: the athena
+live-message success path needs the device awake and on network, and the cloud
+provisioning hook needs an actual cloud container.
 
 Because openpilot moves fast, anything here can go stale. Issues and PRs welcome,
 especially "this no longer matches upstream" corrections.

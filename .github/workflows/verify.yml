@@ -1,0 +1,45 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The MCP server declares its dependencies inline (PEP 723) and is launched
+      # with `uv run`, so uv is what makes the startup test possible.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Gives verify-kit.sh the authoritative manifest check. If this step fails,
+      # the script still runs its own structural validation, so CI stays useful.
+      - name: Install Claude Code CLI
+        continue-on-error: true
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Run the verification suite
+        run: ./verify-kit.sh
+
+      # test_live.py is deliberately not run here: it needs a real COMMA_JWT, which
+      # is a bearer credential for a personal comma account and must not live in CI.
+      - name: Note what CI cannot cover
+        if: always()
+        run: |
+          echo "Not covered by CI (needs a real account and a device):"
+          echo "  plugins/openpilot-device/mcp/test_live.py  - needs COMMA_JWT"
+          echo "  athena live-message success path           - needs the device awake"
+          echo "  openpilot-cloud-dev provisioning hook      - needs a cloud container"
