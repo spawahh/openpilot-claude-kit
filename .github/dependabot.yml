@@ -1,0 +1,16 @@
+version: 2
+
+updates:
+  # Only the workflow's own actions. The plugins declare their Python dependencies
+  # inline via PEP 723 and are resolved by uv at run time, so there is no lockfile
+  # or requirements file for Dependabot to watch — test_startup.py resolving fresh
+  # on every scheduled run is what covers those.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies

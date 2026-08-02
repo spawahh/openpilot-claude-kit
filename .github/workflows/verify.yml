@@ -5,6 +5,16 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Push-triggered CI proves nothing on a repo nobody pushes to for months, and the
+  # failure mode here is silent rot rather than a bad commit: the mcp SDK renamed
+  # FastMCP to MCPServer in 2.0 and the server stopped starting entirely. test_startup.py
+  # resolves dependencies fresh with uv on every run, so a weekly build catches that
+  # class of break with nobody touching the repo.
+  #
+  # GitHub disables scheduled workflows after 60 days of repository inactivity. It emails
+  # first; any commit re-arms it.
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
 
 jobs:
   verify:
