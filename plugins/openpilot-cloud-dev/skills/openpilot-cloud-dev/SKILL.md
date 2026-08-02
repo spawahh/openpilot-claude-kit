@@ -20,6 +20,12 @@ If this plugin's `SessionStart` hook ran, setup is already done and you can skip
 [Verify the environment](#verify-the-environment). The hook only fires when
 `CLAUDE_CODE_REMOTE=true`, so a local session never triggers it.
 
+**If you expected the hook to run in a cloud session and it did not**, the plugin is
+probably only installed in user settings. Cloud sessions load plugins declared in the
+**repository's** `.claude/settings.json`, never ones installed on your own machine — and
+openpilot's `.gitignore` excludes `.claude/`, so the declaration has to be un-ignored and
+committed. See the kit README for the exact file. Until then, provision manually below.
+
 **Before anything else, read [references/environment-limits.md](references/environment-limits.md).**
 Most time lost in these containers goes to failures that look like a broken checkout but
 are really environment constraints with known one-line answers.

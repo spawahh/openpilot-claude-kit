@@ -81,6 +81,40 @@ they disagree.
 | `environment-limits` reference | Every container failure mode we hit, with the one-line fix — the part worth reading first |
 | `SessionStart` hook | Provisions the toolchain automatically: submodules → deps/`uv sync` → LFS → minimal `scons` → persisted venv |
 
+#### Installing it — this one is different
+
+**`/plugin install` is not enough for cloud sessions.** A cloud session never sees plugins
+enabled in your user settings; it only loads plugins **declared in the repository it
+clones**. So this plugin has to be committed into your openpilot fork, not installed on
+your laptop.
+
+Add `.claude/settings.json` to your fork:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "openpilot-claude-kit": {
+      "source": { "source": "github", "repo": "spawahh/openpilot-claude-kit" }
+    }
+  },
+  "enabledPlugins": {
+    "openpilot-cloud-dev@openpilot-claude-kit": true
+  }
+}
+```
+
+openpilot's `.gitignore` excludes `.claude/` wholesale, so you also need to narrow it:
+
+```gitignore
+.claude/*
+!.claude/settings.json
+```
+
+Commit and push both — a cloud session clones from GitHub, so anything uncommitted is
+invisible to it. Installing locally with `/plugin install openpilot-cloud-dev@openpilot-claude-kit`
+is still useful for reading the skill in a terminal session; it just has no effect on the
+cloud side.
+
 **The hook is conservatively gated.** It runs only when all of these hold:
 
 - `CLAUDE_CODE_REMOTE=true` — a local machine is never touched
@@ -90,6 +124,13 @@ they disagree.
 Set `OP_CLOUD_DEV_AUTOSETUP=0` to disable it and follow the skill's manual steps instead.
 
 Tunables: `OP_SCONS_ARGS` (default `--minimal`), `OP_SETUP_TIMEOUT`, `OP_UV_SYSTEM_PYTHON`, `RAYLIB_BACKEND`.
+
+**A note on shape.** SessionStart hooks get no environment caching — they run on every
+session start *and resume*, unlike a cloud environment's setup script, which is snapshotted
+after the first run. Provisioning openpilot is not cheap, so if you use this daily you may
+prefer to move the heavy steps into your environment's setup script and let the hook handle
+only what changes per session. The hook is the portable option; the setup script is the
+fast one.
 
 ### `openpilot-device`
 
