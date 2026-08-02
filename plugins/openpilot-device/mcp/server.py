@@ -32,7 +32,13 @@ from collections import deque
 from typing import Any
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+
+# The SDK renamed its high-level server class in 2.0: FastMCP became MCPServer.
+# Both expose the same .tool() decorator and .run(), so support either.
+try:                                                    # mcp >= 2.0
+    from mcp.server.mcpserver import MCPServer as _Server
+except ImportError:                                     # mcp 1.x
+    from mcp.server.fastmcp import FastMCP as _Server
 
 API_HOST = os.environ.get("COMMA_API_HOST", "https://api.commadotai.com")
 ATHENA_HOST = os.environ.get("COMMA_ATHENA_HOST", "https://athena.comma.ai")
@@ -46,7 +52,21 @@ FORBIDDEN = ("/prime", "pilotpair", "unpair", "add_user", "del_user", "/navigati
 
 HTTP_TIMEOUT = 30.0
 
-mcp = FastMCP("openpilot-device")
+# The API has no is_online field. Reachability is derived from last_athena_ping,
+# a unix timestamp in seconds. Athena's own websocket ping cadence is well under
+# a minute, so a few minutes of silence means the device is asleep or off network.
+ONLINE_THRESHOLD_S = 300
+
+# Route and device records carry the drive's start/end coordinates and the car's VIN.
+# Those identify where the owner lives and works, so they are stripped unless the
+# caller explicitly asks for them.
+SENSITIVE_FIELDS = (
+    "start_lat", "start_lng", "end_lat", "end_lng",
+    "last_gps_lat", "last_gps_lng", "last_gps_bearing", "last_gps_speed",
+    "vin",
+)
+
+mcp = _Server("openpilot-device")
 
 _files_calls: deque[float] = deque()
 
@@ -84,7 +104,8 @@ def _explain_status(exc: httpx.HTTPStatusError) -> str:
         return "403 Forbidden — the token is valid but this account cannot read that device or route."
     if code == 404:
         return ("404 Not Found — check the dongle id or route name. Routes look like "
-                "'dongleid|YYYY-MM-DD--HH-MM-SS'.")
+                "'dongleid|0000004a--a1b2c3d4e5' on current openpilot, or "
+                "'dongleid|YYYY-MM-DD--HH-MM-SS' on older versions.")
     if code == 429:
         return "429 Rate limited — the files endpoint allows 5 requests/minute. Wait and retry."
     return f"{code} {exc.response.reason_phrase} — {exc.response.text[:200]}"
@@ -136,6 +157,15 @@ def _athena(dongle_id: str, method: str, params: dict[str, Any] | None = None) -
             resp.raise_for_status()
             payload = resp.json()
     except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            # Athena returns 404 "Device not registered" when the device is simply
+            # not connected. That is the common case, not a bad dongle id.
+            raise DeviceError(
+                f"Athena cannot reach device {dongle_id}: it is not currently connected "
+                "(the API returns 404 'Device not registered' for an offline device). "
+                "Run verify_connection to see last_seen_seconds_ago. REST tools still "
+                "work against already-uploaded data."
+            ) from exc
         raise DeviceError(_explain_status(exc)) from exc
     except httpx.RequestError as exc:
         raise DeviceError(f"Could not reach {ATHENA_HOST}: {exc}") from exc
@@ -150,6 +180,37 @@ def _athena(dongle_id: str, method: str, params: dict[str, Any] | None = None) -
     return payload
 
 
+def _redact(payload: Any, include_sensitive: bool = False) -> Any:
+    """Strip location and VIN fields from a record or list of records.
+
+    Returns the payload unchanged when include_sensitive is True, so a caller who
+    genuinely needs coordinates can still get them — but never by accident.
+    """
+    if include_sensitive:
+        return payload
+    if isinstance(payload, list):
+        return [_redact(item) for item in payload]
+    if isinstance(payload, dict):
+        out = {k: v for k, v in payload.items() if k not in SENSITIVE_FIELDS}
+        dropped = [k for k in payload if k in SENSITIVE_FIELDS]
+        if dropped:
+            out["_redacted"] = "location/VIN fields removed; pass include_sensitive=True to keep them"
+        return out
+    return payload
+
+
+def _athena_ping_age(device: dict[str, Any]) -> int | None:
+    """Seconds since the device last checked in with athena, or None if never."""
+    ping = device.get("last_athena_ping")
+    if not isinstance(ping, int) or ping <= 0:
+        return None
+    return max(0, int(time.time()) - ping)
+
+
+def _is_online(age_seconds: int | None) -> bool:
+    return age_seconds is not None and age_seconds < ONLINE_THRESHOLD_S
+
+
 # --------------------------------------------------------------------------- tools
 
 
@@ -158,41 +219,54 @@ def verify_connection() -> dict[str, Any]:
     """Check that the JWT works and report what it can reach. Run this first.
 
     Confirms the token is valid, lists the devices it grants access to, and reports
-    whether each one is currently online. Never returns the token itself.
+    whether each one is currently reachable. Never returns the token itself.
     """
     me = _get("v1/me/")
     devices = _get("v1/me/devices/")
     summary = []
     for dev in devices if isinstance(devices, list) else []:
+        age = _athena_ping_age(dev)
         summary.append({
             "dongle_id": dev.get("dongle_id"),
             "alias": dev.get("alias"),
             "device_type": dev.get("device_type"),
-            "online": dev.get("is_online"),
+            "online": _is_online(age),
+            "last_seen_seconds_ago": age,
             "prime": dev.get("prime"),
+            "openpilot_version": dev.get("openpilot_version"),
         })
     return {
         "ok": True,
         "user_id": me.get("id") if isinstance(me, dict) else None,
-        "email": me.get("email") if isinstance(me, dict) else None,
         "device_count": len(summary),
         "devices": summary,
         "api_host": API_HOST,
-        "note": "If a device shows online=false, athena live-message tools will fail; "
-                "REST route and file tools still work against uploaded data.",
+        "note": "There is no is_online field on the API; online is derived from "
+                f"last_athena_ping being under {ONLINE_THRESHOLD_S}s old. When a device "
+                "is offline, athena tools (live_message, device_runtime_state, "
+                "list_device_files) fail with 'Device not registered'. REST route and "
+                "file tools still work against already-uploaded data.",
     }
 
 
 @mcp.tool()
-def list_devices() -> Any:
-    """List every comma device this token can read, with alias, type, and online state."""
-    return _get("v1/me/devices/")
+def list_devices(include_sensitive: bool = False) -> Any:
+    """List every comma device this token can read.
+
+    Includes alias, type, openpilot version, prime status, serial, and
+    last_athena_ping. There is no is_online field — use verify_connection for a
+    derived online flag. Last-known GPS is stripped unless include_sensitive=True.
+    """
+    return _redact(_get("v1/me/devices/"), include_sensitive)
 
 
 @mcp.tool()
-def device_info(dongle_id: str) -> Any:
-    """Get device details: type, alias, online state, openpilot version, prime status."""
-    return _get(f"v1.1/devices/{dongle_id}/")
+def device_info(dongle_id: str, include_sensitive: bool = False) -> Any:
+    """Get details for one device: type, alias, openpilot version, prime, serial.
+
+    Last-known GPS is stripped unless include_sensitive=True.
+    """
+    return _redact(_get(f"v1.1/devices/{dongle_id}/"), include_sensitive)
 
 
 @mcp.tool()
@@ -202,41 +276,72 @@ def device_stats(dongle_id: str) -> Any:
 
 
 @mcp.tool()
-def list_routes(dongle_id: str, days_back: int = 7) -> Any:
-    """List route segments recorded in the last N days, newest first.
+def list_routes(dongle_id: str, days_back: int = 7, include_sensitive: bool = False) -> Any:
+    """List routes (whole drives) recorded in the last N days.
 
-    A route is one ignition-to-power-down drive, named 'dongleid|YYYY-MM-DD--HH-MM-SS'.
-    Each segment is roughly one minute, so a 30-minute drive is about 30 segments.
-    Widen days_back if nothing comes back; the device only uploads on WiFi.
+    A route is one ignition-to-power-down drive. Its name is in the 'fullname' field,
+    shaped 'dongleid|<counter>--<hash>' on current openpilot (older devices use
+    'dongleid|YYYY-MM-DD--HH-MM-SS'). Pass 'fullname' through verbatim; do not try
+    to construct or parse it.
+
+    Widen days_back if nothing comes back; the device only uploads over WiFi, so a
+    recent drive can sit unuploaded for days.
+
+    Route records carry the drive's start and end GPS coordinates and the car's VIN.
+    Those are stripped by default because they identify where the owner lives and
+    works. Set include_sensitive=True only when the coordinates are the point.
     """
     if days_back < 1:
         raise DeviceError("days_back must be at least 1.")
     now_ms = int(time.time() * 1000)
-    from_ms = now_ms - days_back * 86_400_000
-    return _get(f"v1/devices/{dongle_id}/segments", params={"from": from_ms, "to": now_ms})
+    rows = _get(f"v1/devices/{dongle_id}/routes",
+                params={"from": now_ms - days_back * 86_400_000, "to": now_ms})
+    return _redact(rows, include_sensitive)
 
 
 @mcp.tool()
-def route_info(route_name: str) -> Any:
-    """Get metadata for one route. Route names look like 'dongleid|YYYY-MM-DD--HH-MM-SS'."""
-    return _get(f"v1/route/{route_name}/")
+def list_segments(dongle_id: str, days_back: int = 7, include_sensitive: bool = False) -> Any:
+    """List individual ~1-minute segments in the last N days.
+
+    Finer grained than list_routes: a 30-minute drive is about 30 segments. Use this
+    when you need per-segment detail; use list_routes to find a drive.
+
+    Note this endpoint takes 'start'/'end' rather than the 'from'/'to' used elsewhere
+    in the API — passing from/to returns 400.
+    """
+    if days_back < 1:
+        raise DeviceError("days_back must be at least 1.")
+    now_ms = int(time.time() * 1000)
+    rows = _get(f"v1/devices/{dongle_id}/routes_segments",
+                params={"start": now_ms - days_back * 86_400_000, "end": now_ms})
+    return _redact(rows, include_sensitive)
 
 
 @mcp.tool()
-def route_segments(route_name: str) -> Any:
-    """List the segments belonging to a single route."""
-    return _get(f"v1/route/{route_name}/segments")
+def route_info(route_name: str, include_sensitive: bool = False) -> Any:
+    """Get metadata for one route: duration, distance, git branch/commit, platform.
+
+    Pass the 'fullname' field from list_routes verbatim — the format varies by
+    openpilot version, so never construct it by hand. GPS coordinates and VIN are stripped unless include_sensitive=True.
+    """
+    return _redact(_get(f"v1/route/{route_name}/"), include_sensitive)
 
 
 @mcp.tool()
 def route_files(route_name: str) -> Any:
     """Get signed download URLs for a route's logs and video.
 
-    Returns short-lived URLs for rlogs, qlogs, and camera segments. Download rlogs
-    from these URLs rather than pulling them off the device over SSH.
+    Returns short-lived URLs grouped into: logs (full rlogs), qlogs (decimated),
+    cameras / dcameras / ecameras (full video), and qcameras (low-res video).
+
+    Expect empty lists. A route commonly has qlogs and qcameras populated while
+    'logs' and 'cameras' are empty — full-rate data is only uploaded when the device
+    is configured to and has had the WiFi time to do it. An empty 'logs' list means
+    the full rlog is not in the cloud, not that the tool failed. Fall back to qlogs,
+    or pull the rlog off the device over SSH.
 
     Rate limited by comma to 5 requests per minute; this server enforces that locally
-    and will tell you how long to wait rather than letting you hit a 429.
+    and tells you how long to wait rather than letting you hit a 429.
     """
     _throttle_files()
     return _get(f"v1/route/{route_name}/files")

@@ -113,11 +113,17 @@ upstream-openpilot path — **has not yet been run end to end against upstream
 The documented failure modes and fixes are each drawn from a real debugging session, not
 from reading source.
 
-`openpilot-device` is transcribed from [comma's published API spec](https://api.comma.ai/)
-and openpilot's own client code (`tools/lib/api.py`, `system/athena/athenad.py`). **No
-endpoint has been called against a live account** — that needs a token. Expect
-response-shape surprises on first real use, especially in `verify_connection`. Run it
-before trusting anything else.
+`openpilot-device` **has been run against a live account.** Every REST tool returns real
+data; the athena tools are verified only on their offline path (the test device was
+asleep), so the live-message success path remains unproven.
+
+That run found four places where comma's published spec does not match the running API —
+`/devices/:id/segments` 404s, `routes_segments` takes `start`/`end` rather than
+`from`/`to`, `/route/:name/segments` does not exist, and there is no `is_online` field.
+All four are fixed and documented in
+[api-surface.md](plugins/openpilot-device/skills/openpilot-device/references/api-surface.md).
+It also found that the `mcp` SDK renamed `FastMCP` to `MCPServer` in 2.0; the server
+imports whichever is present.
 
 The read-only guarantee *is* tested and does not depend on a token:
 
@@ -126,8 +132,9 @@ python plugins/openpilot-device/mcp/test_safety.py
 ```
 
 It asserts that every billing, pairing, user-management, and navigation endpoint is
-refused, that the rate limiter trips, and that no registered tool name implies a
-mutation. No network, no dependencies.
+refused, that the rate limiter trips, that no registered tool name implies a mutation,
+and that GPS coordinates and VIN are stripped from records by default. No network, no
+dependencies.
 
 Because openpilot moves fast, anything here can go stale. Issues and PRs welcome,
 especially "this no longer matches upstream" corrections.

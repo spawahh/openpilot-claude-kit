@@ -93,8 +93,9 @@ ALLOWED_PATHS = [
     "v1/me/devices/",
     "v1.1/devices/abc/",
     "v1.1/devices/abc/stats",
-    "v1/devices/abc/segments",
-    "v1/route/abc|2026-01-01--00-00-00/files",
+    "v1/devices/abc/routes",
+    "v1/devices/abc/routes_segments",
+    "v1/route/abc|0000004a--a1b2c3d4e5/files",
     "v1/devices/abc/bootlogs",
     "v1/devices/abc/crashlogs",
 ]
@@ -161,6 +162,27 @@ def main() -> int:
 
     named_mutations = [t for t in m.mcp.tools if any(w in t.lower() for w in MUTATING_WORDS)]
     check(f"no mutating tool names (found {named_mutations})", not named_mutations)
+
+    # Location and VIN must not leak by default. These identify where the owner
+    # lives and works, and a route listing carries them on every row.
+    row = {"fullname": "abc|2026-01-01--00-00-00", "start_lat": 47.6, "start_lng": -122.3,
+           "end_lat": 47.7, "end_lng": -122.4, "vin": "JF2SJAEC0FH123456", "distance": 12.5}
+    red = m._redact(row)
+    leaked = [f for f in m.SENSITIVE_FIELDS if f in red]
+    check(f"redaction strips location/VIN by default (leaked {leaked})", not leaked)
+    check("redaction keeps non-sensitive fields", red.get("distance") == 12.5 and "fullname" in red)
+    check("redaction announces itself", "_redacted" in red)
+    kept = m._redact(row, include_sensitive=True)
+    check("include_sensitive=True returns the record intact", kept == row)
+    check("redaction recurses into lists", not any(
+        f in m._redact([row])[0] for f in m.SENSITIVE_FIELDS))
+
+    # Online state is derived, because the API has no is_online field.
+    check("no last_athena_ping -> offline", m._is_online(m._athena_ping_age({})) is False)
+    now = int(__import__("time").time())
+    check("recent ping -> online", m._is_online(m._athena_ping_age({"last_athena_ping": now})))
+    check("stale ping -> offline", not m._is_online(
+        m._athena_ping_age({"last_athena_ping": now - m.ONLINE_THRESHOLD_S - 60})))
 
     print(f"\n{len(failures)} failure(s)")
     return 1 if failures else 0
